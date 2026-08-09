@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.util.concurrent.ExecutorService;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -18,11 +20,12 @@ public class MemoryStoreServicePDETest
     Path tempDir;
 
     private MemoryMcpServer server;
+    private MemoryStoreService store;
 
     @BeforeEach
     void setUp() throws Exception
     {
-        MemoryStoreService store = new MemoryStoreService()
+        store = new MemoryStoreService()
         {
             @Override
             protected Path resolveMemoryDir()
@@ -38,6 +41,16 @@ public class MemoryStoreServicePDETest
         var storeField = MemoryMcpServer.class.getDeclaredField( "memoryStore" );
         storeField.setAccessible( true );
         storeField.set( server, store );
+    }
+
+    @AfterEach
+    void tearDown() throws Exception
+    {
+        var writerField = MemoryStoreService.class.getDeclaredField( "writer" );
+        writerField.setAccessible( true );
+        ExecutorService writer = (ExecutorService) writerField.get( store );
+        writer.shutdown();
+        writer.awaitTermination( 5, java.util.concurrent.TimeUnit.SECONDS );
     }
 
     @Test
