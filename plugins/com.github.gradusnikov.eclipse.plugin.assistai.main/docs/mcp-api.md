@@ -48,7 +48,7 @@ a `status` a caller can branch on, and `diagnostics` carrying a coded
 | [eclipse-ide](#eclipse-ide) | 39 |
 | [eclipse-pde](#eclipse-pde) | 6 |
 | [eclipse-runner](#eclipse-runner) | 17 |
-| [memory](#memory) | 2 |
+| [memory](#memory) | 6 |
 | [time](#time) | 2 |
 | [webpage-reader](#webpage-reader) | 1 |
 
@@ -1258,6 +1258,43 @@ Internal sink for code completion. Use this tool to output any non-code text (ma
 | Parameter | | Description |
 |---|---|---|
 | `text` | \* | Non-code meta text that should not appear in the completion output |
+
+**Returns** `String`
+
+### `forget`
+
+Remove a memory entry by key. Returns whether the key existed.
+
+| Parameter | | Description |
+|---|---|---|
+| `key` | \* | The key to remove |
+
+**Returns** `String`
+
+### `listMemories`
+
+List all stored memory keys with a short preview of each value (max 80 chars). Use recall(key) to retrieve the full value.
+
+**Returns** `String`
+
+### `recall`
+
+Retrieve a previously stored memory entry by its exact key. Returns the stored value, or a message if the key does not exist.
+
+| Parameter | | Description |
+|---|---|---|
+| `key` | \* | The key to look up |
+
+**Returns** `String`
+
+### `remember`
+
+Persist a key-value pair to long-term memory. The value is stored across sessions in the workspace. Use a descriptive, unique key so you can recall or list it later.
+
+| Parameter | | Description |
+|---|---|---|
+| `key` | \* | A descriptive identifier for the memory entry |
+| `value` | \* | The information to store |
 
 **Returns** `String`
 
