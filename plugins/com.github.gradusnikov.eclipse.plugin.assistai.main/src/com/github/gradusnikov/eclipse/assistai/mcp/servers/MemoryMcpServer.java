@@ -25,7 +25,7 @@ public class MemoryMcpServer
         return thought;
     }
 
-    @Tool(name = "remember", description = "Persist a key-value pair to long-term memory. The value is stored across sessions in the workspace. Use a descriptive, unique key so you can recall or list it later.", type = "object")
+    @Tool(name = "remember", description = "Persist a key-value pair to long-term memory. The value is stored across sessions in the workspace. Use a descriptive, unique key so you can recall or list it later. Use this for cross-project knowledge, user preferences, and learned conventions that don't belong in a project-specific configuration file.", type = "object")
     public String remember( @ToolParam(name="key", description = "A descriptive identifier for the memory entry", required=true) String key,
                             @ToolParam(name="value", description = "The information to store", required=true) String value )
     {
@@ -44,7 +44,7 @@ public class MemoryMcpServer
         return value;
     }
 
-    @Tool(name = "listMemories", description = "List all stored memory keys with a short preview of each value (max 80 chars). Use recall(key) to retrieve the full value.", type = "object")
+    @Tool(name = "listMemories", description = "List all stored memory keys with a short preview of each value (max 80 chars). Use recall(key) to retrieve the full value. Call this at the start of every session to load cross-project, cross-session context that is not captured in project-specific configuration files.", type = "object")
     public String listMemories()
     {
         Map<String, String> memories = memoryStore.listMemories();
