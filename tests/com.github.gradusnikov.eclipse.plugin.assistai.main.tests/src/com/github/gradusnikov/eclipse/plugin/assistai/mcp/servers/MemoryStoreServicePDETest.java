@@ -128,17 +128,13 @@ public class MemoryStoreServicePDETest
     @Test
     void storesMemoryInProjectWhenPreferenceIsSet() throws Exception
     {
-        String projectName = "MemoryTestProject_" + System.currentTimeMillis();
-        IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject( projectName );
+        Path targetDir = tempDir.resolve( "memory-target" );
+        Files.createDirectories( targetDir );
         IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
         String oldValue = prefs.getString( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT );
         try
         {
-            IProjectDescription desc = ResourcesPlugin.getWorkspace().newProjectDescription( projectName );
-            project.create( desc, new NullProgressMonitor() );
-            project.open( new NullProgressMonitor() );
-
-            prefs.setValue( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT, projectName );
+            prefs.setValue( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT, targetDir.toString() );
 
             MemoryStoreService projectStore = new MemoryStoreService();
             var loggerField = MemoryStoreService.class.getDeclaredField( "logger" );
@@ -153,8 +149,8 @@ public class MemoryStoreServicePDETest
             w.shutdown();
             w.awaitTermination( 5, java.util.concurrent.TimeUnit.SECONDS );
 
-            Path memoryFile = project.getLocation().toFile().toPath().resolve( ".assistai" ).resolve( "memory.json" );
-            assertTrue( Files.exists( memoryFile ), "memory.json should be in the project" );
+            Path memoryFile = targetDir.resolve( ".assistai" ).resolve( "memory.json" );
+            assertTrue( Files.exists( memoryFile ), "memory.json should be in the configured directory" );
             String content = Files.readString( memoryFile );
             assertTrue( content.contains( "project-key" ) );
             assertTrue( content.contains( "project-value" ) );
@@ -162,10 +158,6 @@ public class MemoryStoreServicePDETest
         finally
         {
             prefs.setValue( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT, oldValue );
-            if ( project.exists() )
-            {
-                project.delete( true, true, new NullProgressMonitor() );
-            }
         }
     }
 }

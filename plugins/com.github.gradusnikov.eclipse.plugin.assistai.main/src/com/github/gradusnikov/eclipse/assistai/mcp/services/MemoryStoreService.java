@@ -108,13 +108,13 @@ public class MemoryStoreService
     protected Path resolveMemoryDir()
     {
         IPreferenceStore store = Activator.getDefault().getPreferenceStore();
-        String projectName = store.getString( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT );
-        if ( projectName != null && !projectName.isBlank() )
+        String location = store.getString( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT );
+        if ( location != null && !location.isBlank() )
         {
-            IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject( projectName );
-            if ( project.isAccessible() && project.getLocation() != null )
+            Path dir = Path.of( location );
+            if ( Files.isDirectory( dir ) )
             {
-                return project.getLocation().toFile().toPath().resolve( MEMORY_DIR );
+                return dir.resolve( MEMORY_DIR );
             }
         }
         Path workspaceRoot = ResourcesPlugin.getWorkspace().getRoot().getLocation().toFile().toPath();

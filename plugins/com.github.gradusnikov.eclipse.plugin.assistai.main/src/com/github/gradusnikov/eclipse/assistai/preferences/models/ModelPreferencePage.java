@@ -6,6 +6,7 @@ import org.eclipse.e4.core.contexts.ContextInjectionFactory;
 import org.eclipse.e4.core.contexts.IEclipseContext;
 import org.eclipse.jface.preference.BooleanFieldEditor;
 import org.eclipse.jface.preference.ComboFieldEditor;
+import org.eclipse.jface.preference.DirectoryFieldEditor;
 import org.eclipse.jface.preference.FieldEditorPreferencePage;
 import org.eclipse.jface.preference.IntegerFieldEditor;
 import org.eclipse.jface.preference.StringFieldEditor;
@@ -135,13 +136,13 @@ public class ModelPreferencePage extends FieldEditorPreferencePage implements IW
         Group memoryGroup = createGroup(parent, "Memory Store");
         Composite memoryComposite = createGroupComposite(memoryGroup);
         
-        StringFieldEditor memoryProjectEditor = new StringFieldEditor(
+        DirectoryFieldEditor memoryDirEditor = new DirectoryFieldEditor(
             PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT,
-            "&Project:",
+            "&Location:",
             memoryComposite
         );
-        memoryProjectEditor.setEmptyStringAllowed(true);
-        addField( memoryProjectEditor );
+        memoryDirEditor.setEmptyStringAllowed(true);
+        addField( memoryDirEditor );
         
         // Adjust layout for the groups
         adjustGroupLayout(chatGroup);
