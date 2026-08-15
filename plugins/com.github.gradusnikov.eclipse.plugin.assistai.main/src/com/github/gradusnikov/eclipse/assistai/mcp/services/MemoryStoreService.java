@@ -13,13 +13,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.ILog;
 import org.eclipse.e4.core.di.annotations.Creatable;
+import org.eclipse.jface.preference.IPreferenceStore;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+
+import com.github.gradusnikov.eclipse.assistai.Activator;
+import com.github.gradusnikov.eclipse.assistai.preferences.PreferenceConstants;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
@@ -102,6 +107,16 @@ public class MemoryStoreService
 
     protected Path resolveMemoryDir()
     {
+        IPreferenceStore store = Activator.getDefault().getPreferenceStore();
+        String projectName = store.getString( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT );
+        if ( projectName != null && !projectName.isBlank() )
+        {
+            IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject( projectName );
+            if ( project.isAccessible() && project.getLocation() != null )
+            {
+                return project.getLocation().toFile().toPath().resolve( MEMORY_DIR );
+            }
+        }
         Path workspaceRoot = ResourcesPlugin.getWorkspace().getRoot().getLocation().toFile().toPath();
         return workspaceRoot.resolve( MEMORY_DIR );
     }
