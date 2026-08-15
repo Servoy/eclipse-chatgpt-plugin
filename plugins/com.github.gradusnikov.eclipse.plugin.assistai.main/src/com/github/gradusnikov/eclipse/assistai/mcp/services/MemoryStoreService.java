@@ -13,7 +13,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.ILog;
 import org.eclipse.e4.core.di.annotations.Creatable;
@@ -22,7 +21,6 @@ import org.eclipse.jface.preference.IPreferenceStore;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-
 import com.github.gradusnikov.eclipse.assistai.Activator;
 import com.github.gradusnikov.eclipse.assistai.preferences.PreferenceConstants;
 
@@ -35,8 +33,8 @@ public class MemoryStoreService
 {
     private static final String MEMORY_DIR = ".assistai";
     private static final String MEMORY_FILE = "memory.json";
-    private static final String THOUGHTS_FILE = "thoughts.log";
-    private static final String THOUGHTS_BACKUP = "thoughts.1.log";
+    private static final String THOUGHTS_FILE = "assistai_thoughts.log";
+    private static final String THOUGHTS_BACKUP = "assistai_thoughts.1.log";
     private static final long MAX_THOUGHTS_SIZE = 1024 * 1024; // 1 MB
     private static final DateTimeFormatter TIMESTAMP_FMT = DateTimeFormatter.ofPattern( "yyyy-MM-dd HH:mm:ss" );
 
@@ -100,35 +98,32 @@ public class MemoryStoreService
         writer.execute( () -> writeThought( timestamp, thought ) );
     }
 
-    private Path getMemoryDir()
+    protected Path resolveMemoryFile()
     {
-        return resolveMemoryDir();
-    }
-
-    protected Path resolveMemoryDir()
-    {
-        IPreferenceStore store = Activator.getDefault().getPreferenceStore();
-        String location = store.getString( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT );
+        IPreferenceStore prefStore = Activator.getDefault().getPreferenceStore();
+        String location = prefStore.getString( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT );
         if ( location != null && !location.isBlank() )
         {
-            Path dir = Path.of( location );
-            if ( Files.isDirectory( dir ) )
+            Path file = Path.of( location );
+            Path parent = file.getParent();
+            if ( parent != null && Files.isDirectory( parent ) )
             {
-                return dir.resolve( MEMORY_DIR );
+                return file;
             }
         }
         Path workspaceRoot = ResourcesPlugin.getWorkspace().getRoot().getLocation().toFile().toPath();
-        return workspaceRoot.resolve( MEMORY_DIR );
+        return workspaceRoot.resolve( MEMORY_DIR ).resolve( MEMORY_FILE );
     }
 
-    private Path getMemoryFile()
+    private Path getThoughtsDir()
     {
-        return getMemoryDir().resolve( MEMORY_FILE );
+        Path workspaceRoot = ResourcesPlugin.getWorkspace().getRoot().getLocation().toFile().toPath();
+        return workspaceRoot.resolve( ".metadata" );
     }
 
     private void loadFromDisk()
     {
-        Path file = getMemoryFile();
+        Path file = resolveMemoryFile();
         if ( !Files.exists( file ) )
         {
             return;
@@ -150,7 +145,7 @@ public class MemoryStoreService
 
     private void saveToDisk()
     {
-        Path file = getMemoryFile();
+        Path file = resolveMemoryFile();
         Path parent = file.getParent();
         if ( parent == null )
         {
@@ -170,7 +165,7 @@ public class MemoryStoreService
 
     private void writeThought( LocalDateTime timestamp, String thought )
     {
-        Path dir = getMemoryDir();
+        Path dir = getThoughtsDir();
         Path file = dir.resolve( THOUGHTS_FILE );
         try
         {
