@@ -36,9 +36,9 @@ public class MemoryStoreServicePDETest
         store = new MemoryStoreService()
         {
             @Override
-            protected Path resolveMemoryDir()
+            protected Path resolveMemoryFile()
             {
-                return tempDir.resolve( ".assistai" );
+                return tempDir.resolve( ".assistai" ).resolve( "memory.json" );
             }
         };
         var loggerField = MemoryStoreService.class.getDeclaredField( "logger" );
@@ -128,13 +128,12 @@ public class MemoryStoreServicePDETest
     @Test
     void storesMemoryInProjectWhenPreferenceIsSet() throws Exception
     {
-        Path targetDir = tempDir.resolve( "memory-target" );
-        Files.createDirectories( targetDir );
+        Path targetFile = tempDir.resolve( "custom-memory.json" );
         IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
         String oldValue = prefs.getString( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT );
         try
         {
-            prefs.setValue( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT, targetDir.toString() );
+            prefs.setValue( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT, targetFile.toString() );
 
             MemoryStoreService projectStore = new MemoryStoreService();
             var loggerField = MemoryStoreService.class.getDeclaredField( "logger" );
@@ -149,9 +148,8 @@ public class MemoryStoreServicePDETest
             w.shutdown();
             w.awaitTermination( 5, java.util.concurrent.TimeUnit.SECONDS );
 
-            Path memoryFile = targetDir.resolve( ".assistai" ).resolve( "memory.json" );
-            assertTrue( Files.exists( memoryFile ), "memory.json should be in the configured directory" );
-            String content = Files.readString( memoryFile );
+            assertTrue( Files.exists( targetFile ), "memory file should be at configured path" );
+            String content = Files.readString( targetFile );
             assertTrue( content.contains( "project-key" ) );
             assertTrue( content.contains( "project-value" ) );
         }

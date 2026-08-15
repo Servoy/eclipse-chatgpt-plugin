@@ -8,6 +8,7 @@ import org.eclipse.jface.preference.BooleanFieldEditor;
 import org.eclipse.jface.preference.ComboFieldEditor;
 import org.eclipse.jface.preference.DirectoryFieldEditor;
 import org.eclipse.jface.preference.FieldEditorPreferencePage;
+import org.eclipse.jface.preference.FileFieldEditor;
 import org.eclipse.jface.preference.IntegerFieldEditor;
 import org.eclipse.jface.preference.StringFieldEditor;
 import org.eclipse.swt.SWT;
@@ -136,13 +137,14 @@ public class ModelPreferencePage extends FieldEditorPreferencePage implements IW
         Group memoryGroup = createGroup(parent, "Memory Store");
         Composite memoryComposite = createGroupComposite(memoryGroup);
         
-        DirectoryFieldEditor memoryDirEditor = new DirectoryFieldEditor(
+        FileFieldEditor memoryFileEditor = new FileFieldEditor(
             PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT,
-            "&Location:",
+            "&File:",
             memoryComposite
         );
-        memoryDirEditor.setEmptyStringAllowed(true);
-        addField( memoryDirEditor );
+        memoryFileEditor.setEmptyStringAllowed(true);
+        memoryFileEditor.setFileExtensions( new String[] { "*.json", "*.*" } );
+        addField( memoryFileEditor );
         
         // Adjust layout for the groups
         adjustGroupLayout(chatGroup);
