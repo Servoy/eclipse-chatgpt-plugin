@@ -3,16 +3,24 @@ package com.github.gradusnikov.eclipse.plugin.assistai.mcp.servers;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.ExecutorService;
 
+import org.eclipse.core.resources.IProject;
+import org.eclipse.core.resources.IProjectDescription;
+import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.jface.preference.IPreferenceStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import com.github.gradusnikov.eclipse.assistai.Activator;
 import com.github.gradusnikov.eclipse.assistai.mcp.servers.MemoryMcpServer;
 import com.github.gradusnikov.eclipse.assistai.mcp.services.MemoryStoreService;
+import com.github.gradusnikov.eclipse.assistai.preferences.PreferenceConstants;
 
 public class MemoryStoreServicePDETest
 {
@@ -115,5 +123,49 @@ public class MemoryStoreServicePDETest
     {
         String result = server.think( "a useful thought" );
         assertEquals( "a useful thought", result );
+    }
+
+    @Test
+    void storesMemoryInProjectWhenPreferenceIsSet() throws Exception
+    {
+        String projectName = "MemoryTestProject_" + System.currentTimeMillis();
+        IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject( projectName );
+        IPreferenceStore prefs = Activator.getDefault().getPreferenceStore();
+        String oldValue = prefs.getString( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT );
+        try
+        {
+            IProjectDescription desc = ResourcesPlugin.getWorkspace().newProjectDescription( projectName );
+            project.create( desc, new NullProgressMonitor() );
+            project.open( new NullProgressMonitor() );
+
+            prefs.setValue( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT, projectName );
+
+            MemoryStoreService projectStore = new MemoryStoreService();
+            var loggerField = MemoryStoreService.class.getDeclaredField( "logger" );
+            loggerField.setAccessible( true );
+            loggerField.set( projectStore, org.eclipse.core.runtime.Platform.getLog( MemoryStoreServicePDETest.class ) );
+
+            projectStore.remember( "project-key", "project-value" );
+
+            var writerField = MemoryStoreService.class.getDeclaredField( "writer" );
+            writerField.setAccessible( true );
+            ExecutorService w = (ExecutorService) writerField.get( projectStore );
+            w.shutdown();
+            w.awaitTermination( 5, java.util.concurrent.TimeUnit.SECONDS );
+
+            Path memoryFile = project.getLocation().toFile().toPath().resolve( ".assistai" ).resolve( "memory.json" );
+            assertTrue( Files.exists( memoryFile ), "memory.json should be in the project" );
+            String content = Files.readString( memoryFile );
+            assertTrue( content.contains( "project-key" ) );
+            assertTrue( content.contains( "project-value" ) );
+        }
+        finally
+        {
+            prefs.setValue( PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT, oldValue );
+            if ( project.exists() )
+            {
+                project.delete( true, true, new NullProgressMonitor() );
+            }
+        }
     }
 }
