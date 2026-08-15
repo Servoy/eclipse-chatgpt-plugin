@@ -131,9 +131,22 @@ public class ModelPreferencePage extends FieldEditorPreferencePage implements IW
         hotkeyEditor.setEmptyStringAllowed(false);
         addField( hotkeyEditor );
         
+        // --- Memory Store Section ---
+        Group memoryGroup = createGroup(parent, "Memory Store");
+        Composite memoryComposite = createGroupComposite(memoryGroup);
+        
+        StringFieldEditor memoryProjectEditor = new StringFieldEditor(
+            PreferenceConstants.ASSISTAI_MEMORY_STORE_PROJECT,
+            "&Project:",
+            memoryComposite
+        );
+        memoryProjectEditor.setEmptyStringAllowed(true);
+        addField( memoryProjectEditor );
+        
         // Adjust layout for the groups
         adjustGroupLayout(chatGroup);
         adjustGroupLayout(completionGroup);
+        adjustGroupLayout(memoryGroup);
     }
     
     /**
