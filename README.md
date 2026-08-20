@@ -39,7 +39,7 @@ The status panel shows all available endpoints:
 
 #### Claude Code
 
-Add to your Claude Code MCP settings (`.claude/settings.json` or project-level(`.mcp.json` in project root)):
+Add to your Claude Code MCP settings (`~/.claude.json` or project-level(`.mcp.json` in project root)):
 
 ```json
 {
@@ -75,6 +75,57 @@ Add to your Claude Code MCP settings (`.claude/settings.json` or project-level(`
         "--allow-http",
         "--header", "Authorization: Bearer YOUR_TOKEN"
       ]
+    }
+  }
+}
+```
+
+#### Github Copilot CLI
+
+Add to your Github Copilot CLI MCP settings (`~/.copilot/mcp-config.json`):
+
+```json
+{
+  "mcpServers": {
+    "eclipse-ide": {
+      "type": "http",
+      "url": "http://localhost:8124/mcp/eclipse-ide",
+      "headers": {
+        "Authorization": "YOUR_TOKEN"
+      },
+      "tools": ["*"]
+    },
+    "eclipse-coder": {
+      "type": "http",
+      "url": "http://localhost:8124/mcp/eclipse-coder",
+      "headers": {
+        "Authorization": "YOUR_TOKEN"
+      },
+      "tools": ["*"]
+    },
+    "eclipse-runner": {
+      "type": "http",
+      "url": "http://localhost:8124/mcp/eclipse-runner",
+      "headers": {
+        "Authorization": "YOUR_TOKEN"
+      },
+      "tools": ["*"]
+    },
+    "eclipse-context": {
+      "type": "http",
+      "url": "http://localhost:8124/mcp/eclipse-context",
+      "headers": {
+        "Authorization": "YOUR_TOKEN"
+      },
+      "tools": ["*"]
+    },
+    "eclipse-git": {
+      "type": "http",
+      "url": "http://localhost:8124/mcp/eclipse-git",
+      "headers": {
+        "Authorization": "YOUR_TOKEN"
+      },
+      "tools": ["*"]
     }
   }
 }
