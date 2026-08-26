@@ -25,7 +25,7 @@ public class MemoryMcpServer
         return thought;
     }
 
-    @Tool(name = "remember", description = "Persist a key-value pair to long-term memory. The value is stored across sessions in the workspace. Use a descriptive, unique key so you can recall or list it later. Use this for cross-project knowledge, user preferences, and learned conventions that don't belong in a project-specific configuration file.", type = "object")
+    @Tool(name = "remember", description = "Persist a key-value pair to long-term memory. The value is stored permanently across all sessions and projects in the workspace — similar to a global ~/.config/opencode/AGENTS.md but editable by the assistant at runtime. Use a descriptive, unique key so you can recall or list it later. Use this for cross-project knowledge, user preferences, and learned conventions that don't belong in a project-specific configuration file.", type = "object")
     public String remember( @ToolParam(name="key", description = "A descriptive identifier for the memory entry", required=true) String key,
                             @ToolParam(name="value", description = "The information to store", required=true) String value )
     {
@@ -33,7 +33,7 @@ public class MemoryMcpServer
         return "Stored: " + key + " = " + value;
     }
 
-    @Tool(name = "recall", description = "Retrieve a previously stored memory entry by its exact key. Returns the stored value, or a message if the key does not exist.", type = "object")
+    @Tool(name = "recall", description = "Retrieve a previously stored memory entry by its exact key. Returns the stored value, or a message if the key does not exist. Use after listMemories to fetch the full value of a specific entry.", type = "object")
     public String recall( @ToolParam(name="key", description = "The key to look up", required=true) String key )
     {
         String value = memoryStore.recall( key );
@@ -44,7 +44,7 @@ public class MemoryMcpServer
         return value;
     }
 
-    @Tool(name = "listMemories", description = "List all stored memory keys with a short preview of each value (max 80 chars). Use recall(key) to retrieve the full value. Call this at the start of every session to load cross-project, cross-session context that is not captured in project-specific configuration files.", type = "object")
+    @Tool(name = "listMemories", description = "List all stored memory keys with a short preview of each value (max 80 chars). Use recall(key) to retrieve the full value. Call this at the start of every session to load cross-project, cross-session context that is not captured in project-specific configuration files. This is the persistent, global instruction store — equivalent to reading a global AGENTS.md but dynamic and editable at runtime.", type = "object")
     public String listMemories()
     {
         Map<String, String> memories = memoryStore.listMemories();
@@ -65,7 +65,7 @@ public class MemoryMcpServer
         return sb.toString().trim();
     }
 
-    @Tool(name = "forget", description = "Remove a memory entry by key. Returns whether the key existed.", type = "object")
+    @Tool(name = "forget", description = "Remove a memory entry by key. Returns whether the key existed. Use to clean up outdated or incorrect entries from persistent memory.", type = "object")
     public String forget( @ToolParam(name="key", description = "The key to remove", required=true) String key )
     {
         boolean removed = memoryStore.forget( key );
