@@ -42,7 +42,7 @@ a `status` a caller can branch on, and `diagnostics` carrying a coded
 | Server | Tools |
 |---|---|
 | [duck-duck-search](#duck-duck-search) | 1 |
-| [eclipse-coder](#eclipse-coder) | 22 |
+| [eclipse-coder](#eclipse-coder) | 23 |
 | [eclipse-context](#eclipse-context) | 7 |
 | [eclipse-git](#eclipse-git) | 29 |
 | [eclipse-ide](#eclipse-ide) | 39 |
@@ -224,6 +224,25 @@ Cleans up existing imports in all Java files within a package by removing unused
 |---|---|---|
 | `projectName` | \* | The name of the project containing the package |
 | `packageName` | \* | The fully qualified package name (e.g., 'com.example.mypackage') |
+
+**Returns** [`EditResult`](#editresult)
+
+### `refactorChangeMethodSignature` *(long)*
+
+Changes the signature of a Java method with Eclipse's Change Method Signature refactoring, so every call site and every overriding method in the workspace follows: add, remove, reorder, rename or retype parameters, change the return type, visibility or name, and add or remove thrown exceptions. The method is named the way getMethodSource names it - fully qualified class, method name and an optional methodSignature hint for overloads. parameters, when given, is the WHOLE new list in order: an entry continues the current parameter with the same name (or the one named by its oldName, when renaming), a current parameter no entry continues is removed, and an entry that continues none is added and must carry type and defaultValue - the expression every existing call site will pass for it. Leave a part out to keep it as it is. The result is addressed to the declaring file, and affectedResources lists every file the refactoring rewrote, in any project, with the version each one now has. A change Eclipse refuses - an invalid type, a clash with an existing overload, a method that overrides another (change the topmost declaration instead) - is reported as REFACTORING_PRECONDITION_FAILED with Eclipse's reason; a parameter list this tool cannot map onto the current one, or a signature identical to the current one, as VALIDATION_ERROR. Either way nothing is changed. Prefer this over editing the declaration by hand: a hand edit leaves every caller to be found and fixed one by one.
+
+| Parameter | | Description |
+|---|---|---|
+| `fullyQualifiedClassName` | \* | The fully qualified name of the class declaring the method (e.g. 'com.example.Account') |
+| `methodName` | \* | The method's current name |
+| `methodSignature` |  | Optional parameter type hint to pick one overload, matched against the parameter list as getMethodSource renders it (e.g. 'String' or 'int amount'). Required when the name is overloaded. |
+| `parameters` |  | Optional JSON array holding the COMPLETE new parameter list in order, each {"name":"...","type":"...","oldName":"...","defaultValue":"..."}. name is required. type is the type as written in source: required for a new parameter, optional for a continued one (omit it to keep the type). oldName names the current parameter this entry continues when it is being renamed. defaultValue is the expression existing call sites will pass and is required for a new parameter. Example: [{"name":"amount"},{"name":"note","type":"String","defaultValue":"\"cash\""}] keeps amount and adds note. Omit to leave the parameters alone; pass [] to remove them all. |
+| `returnType` |  | Optional new return type as written in source (e.g. 'long', 'List<String>', 'void') |
+| `visibility` |  | Optional new visibility: public, protected, package or private |
+| `newMethodName` |  | Optional new name for the method; renaming alone is better done with refactorRenameJavaElement |
+| `addExceptions` |  | Optional comma-separated fully qualified exception types to add to the throws clause (e.g. 'java.io.IOException') |
+| `removeExceptions` |  | Optional comma-separated exception types to remove from the throws clause, simple or fully qualified |
+| `keepOriginalAsDelegate` |  | If 'true', keep a deprecated method with the old signature that delegates to the new one, so callers outside the workspace keep compiling. Default: false |
 
 **Returns** [`EditResult`](#editresult)
 
@@ -857,7 +876,7 @@ Formats code according to the current Eclipse formatter settings.
 
 ### `getClassOutline`
 
-Returns the outline of a Java class: its declaration plus fields, method signatures (no bodies) and inner types, each with the first sentence of its Javadoc, so the outline says what the members do and not only how they are called. Every entry carries a 1-based startLine and endLine, so one member can be read with readProjectResource(projectName, filePath, startLine, endLine) instead of fetching the whole file. Much cheaper than getSource; use this first, then getMethodSource or readProjectResource for the member you want. javadoc=FULL renders each member's whole comment as Markdown and NONE leaves documentation out; a method with no comment of its own reports its supertype's text with javadocInherited=true. status reports TYPE_NOT_FOUND, NO_SOURCE or ACCESS_DENIED rather than an empty outline.
+Returns the outline of a Java class: its declaration plus fields, method signatures (no bodies) and inner types, each with the first sentence of its Javadoc, so the outline says what the members do and not only how they are called. Every entry carries a 1-based startLine and endLine, so one member can be read with readProjectResource(projectName, filePath, startLine, endLine) instead of fetching the whole file. Much cheaper than getSource; use this first, then getMethodSource or readProjectResource for the member you want. javadoc=FULL renders each member's whole comment as Markdown and NONE leaves documentation out; a method with no comment of its own reports its supertype's text with javadocInherited=true. The type may be a library class: with attached source the outline reads that, and without it the class is decompiled. sourceOrigin says which (WORKSPACE_SOURCE, ATTACHED_SOURCE or DECOMPILED_CLASS); for a library class projectName and filePath are null and its members are read with getMethodSource or getFilteredSource by class name instead. status reports TYPE_NOT_FOUND, NO_SOURCE (a class that could not be decompiled either) or ACCESS_DENIED rather than an empty outline.
 
 | Parameter | | Description |
 |---|---|---|
@@ -916,7 +935,7 @@ Gets the effective POM for a Maven project.
 
 ### `getFilteredSource`
 
-Returns one class's source with the import block and the bodies of the methods you did not ask for left out. The content is exact - no line-number prefixes and no '// ... collapsed' comments - and every omission is a range in omittedRanges, so a caller that wants one back reads it with readProjectResource(projectName, filePath, startLine, endLine). status is PARTIAL whenever anything was omitted.
+Returns one class's source with the import block and the bodies of the methods you did not ask for left out. The content is exact - no line-number prefixes and no '// ... collapsed' comments - and every omission is a range in omittedRanges, so a caller that wants one back reads it with readProjectResource(projectName, filePath, startLine, endLine). status is PARTIAL whenever anything was omitted. Works for library classes too - from attached source or a decompilation, with origin saying which - so a large library class can be read with only the methods of interest expanded instead of whole through getSource.
 
 | Parameter | | Description |
 |---|---|---|
@@ -988,7 +1007,7 @@ Finds the callers of a method, and what that method calls, to understand how it 
 
 ### `getMethodSource`
 
-Returns the source of specific method(s) of one class. Accepts comma-separated method names to retrieve several in one call. Each method comes back as exact source with its own 1-based range, so its lines can be passed straight to the editing tools; a requested name that matches nothing is listed in notFound rather than mentioned in a comment. version.modificationStamp is the token an edit passes as expectedModificationStamp. Use after getClassOutline to read only the methods you need.
+Returns the source of specific method(s) of one class. Accepts comma-separated method names to retrieve several in one call. Each method comes back as exact source with its own 1-based range, so its lines can be passed straight to the editing tools; a requested name that matches nothing is listed in notFound rather than mentioned in a comment. version.modificationStamp is the token an edit passes as expectedModificationStamp. Use after getClassOutline to read only the methods you need. Works for library classes too, from attached source or a decompilation: sourceOrigin says which, and only WORKSPACE_SOURCE can be edited.
 
 | Parameter | | Description |
 |---|---|---|
@@ -2039,6 +2058,7 @@ Reads the content of the given web page and returns it as markdown, together wit
 | `status` | [`ClassOutlineResponseStatus`](#classoutlineresponsestatus) |
 | `projectName` | `String` |
 | `filePath` | `String` |
+| `sourceOrigin` | [`SourceOrigin`](#sourceorigin) |
 | `declaration` | [`ClassOutlineResponseMember`](#classoutlineresponsemember) |
 | `fields` | [`ClassOutlineResponseMember`](#classoutlineresponsemember)[] |
 | `methods` | [`ClassOutlineResponseMember`](#classoutlineresponsemember)[] |
@@ -2124,6 +2144,7 @@ Reads the content of the given web page and returns it as markdown, together wit
 | `className` | `String` |
 | `projectName` | `String` |
 | `filePath` | `String` |
+| `sourceOrigin` | [`SourceOrigin`](#sourceorigin) |
 | `version` | [`ResourceVersion`](#resourceversion) |
 | `methods` | [`MethodSourceResponseMethodSource`](#methodsourceresponsemethodsource)[] |
 | `notFound` | `String`[] |
