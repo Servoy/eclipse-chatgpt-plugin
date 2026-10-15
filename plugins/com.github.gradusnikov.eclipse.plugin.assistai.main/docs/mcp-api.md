@@ -45,7 +45,7 @@ a `status` a caller can branch on, and `diagnostics` carrying a coded
 | [eclipse-coder](#eclipse-coder) | 23 |
 | [eclipse-context](#eclipse-context) | 7 |
 | [eclipse-git](#eclipse-git) | 29 |
-| [eclipse-ide](#eclipse-ide) | 39 |
+| [eclipse-ide](#eclipse-ide) | 41 |
 | [eclipse-pde](#eclipse-pde) | 6 |
 | [eclipse-runner](#eclipse-runner) | 17 |
 | [memory](#memory) | 6 |
@@ -831,6 +831,18 @@ Searches workspace files using a Java regular expression via Eclipse's text sear
 
 **Returns** [`SearchResponse`](#searchresponse)
 
+### `findDeadCode` *(long)*
+
+Finds methods in a project that have no references anywhere in the workspace and are not recognizable entry points. IMPORTANT: these are HEURISTIC CANDIDATES, not proof of dead code. The reference count is exact, but a method reported here can still be used through reflection, dependency injection, serialization, a public API consumed outside the workspace, or a non-Java caller (JSP, Spring/XML config, scripting) - none of which this search sees. Present the result as 'candidates to review', never as 'confirmed unused'. Entry points are excluded before reporting: main(String[]), constructors, methods annotated with standard test/lifecycle/DI/web annotations (@Test, @BeforeEach, @Inject, @PostConstruct, @Override, @Bean, @GetMapping, ...), and overrides of a supertype or interface method. Each candidate reports projectName, filePath and a 1-based lineNumber - the same location triple findReferences returns - so it can be opened without a follow-up search. status distinguishes a missing project from a closed one.
+
+| Parameter | | Description |
+|---|---|---|
+| `projectName` | \* | The exact open Eclipse Java project name to scan |
+| `packageFilter` |  | Optional package-name prefix to limit the scan (e.g. 'com.example.internal'); omit to scan the whole project |
+| `maxResults` |  | Maximum number of candidates to list (default: 50). totalCandidates reports how many matched before truncation. |
+
+**Returns** [`DeadCodeResponse`](#deadcoderesponse)
+
 ### `findFiles`
 
 Finds workspace files matching the given glob patterns. Each file reports projectName and a project-relative filePath, which is what the reading and editing tools take.
@@ -1004,6 +1016,19 @@ Finds the callers of a method, and what that method calls, to understand how it 
 | `maxDepth` |  | Maximum depth of the call hierarchy to retrieve (default: 3) |
 
 **Returns** [`CallHierarchyResponse`](#callhierarchyresponse)
+
+### `getMethodMetrics` *(long)*
+
+Measures how connected each method in a project is: fanIn (how many distinct methods call it) and fanOut (how many distinct methods it calls), counted one level deep from the live JDT call hierarchy. A high fanIn marks a method much of the project depends on; a high fanOut marks one that coordinates many others - both are where a refactoring has to be careful. Use minFanIn/minFanOut to find only the hubs, and the result is sorted with the most connected methods first. Each method reports projectName, filePath and a 1-based lineNumber so it can be opened directly. status distinguishes a missing project from a closed one.
+
+| Parameter | | Description |
+|---|---|---|
+| `projectName` | \* | The exact open Eclipse Java project name to scan |
+| `minFanOut` |  | Only report methods whose fanOut (distinct callees) is at least this (default: 0 = no floor) |
+| `minFanIn` |  | Only report methods whose fanIn (distinct callers) is at least this (default: 0 = no floor) |
+| `maxResults` |  | Maximum number of methods to list, highest total connectivity first (default: 50) |
+
+**Returns** [`MethodMetricsResponse`](#methodmetricsresponse)
 
 ### `getMethodSource`
 
@@ -2022,6 +2047,20 @@ Reads the content of the given web page and returns it as markdown, together wit
 | `truncated` | `boolean` |
 | `summaryText` | `String` |
 
+### `DeadCodeResponse`
+
+| Field | Type |
+|---|---|
+| `status` | [`DeadCodeResponseStatus`](#deadcoderesponsestatus) |
+| `projectName` | `String` |
+| `packageFilter` | `String` |
+| `methodsScanned` | `int` |
+| `totalCandidates` | `int` |
+| `truncated` | `boolean` |
+| `candidates` | [`DeadCodeResponseCandidate`](#deadcoderesponsecandidate)[] |
+| `diagnostics` | [`Diagnostic`](#diagnostic)[] |
+| `summaryText` | `String` |
+
 ### `FileListResponse`
 
 | Field | Type |
@@ -2139,6 +2178,21 @@ Reads the content of the given web page and returns it as markdown, together wit
 | `callers` | [`CallHierarchyResponseCallNode`](#callhierarchyresponsecallnode)[] |
 | `callees` | [`CallHierarchyResponseCallNode`](#callhierarchyresponsecallnode)[] |
 | `diagnostics` | [`Diagnostic`](#diagnostic)[] |
+
+### `MethodMetricsResponse`
+
+| Field | Type |
+|---|---|
+| `status` | [`MethodMetricsResponseStatus`](#methodmetricsresponsestatus) |
+| `projectName` | `String` |
+| `minFanOut` | `int` |
+| `minFanIn` | `int` |
+| `methodsScanned` | `int` |
+| `totalMatched` | `int` |
+| `truncated` | `boolean` |
+| `methods` | [`MethodMetricsResponseMethodMetric`](#methodmetricsresponsemethodmetric)[] |
+| `diagnostics` | [`Diagnostic`](#diagnostic)[] |
+| `summaryText` | `String` |
 
 ### `MethodSourceResponse`
 
@@ -2761,6 +2815,21 @@ Reads the content of the given web page and returns it as markdown, together wit
 | `lineNumber` | `int` |
 | `lineContent` | `String` |
 
+### `DeadCodeResponseStatus`
+
+`OK` \| `PROJECT_NOT_FOUND` \| `PROJECT_CLOSED` \| `FAILED`
+
+### `DeadCodeResponseCandidate`
+
+| Field | Type |
+|---|---|
+| `methodName` | `String` |
+| `declaringType` | `String` |
+| `signature` | `String` |
+| `projectName` | `String` |
+| `filePath` | `String` |
+| `lineNumber` | `int` |
+
 ### `FileListResponseWorkspaceFile`
 
 | Field | Type |
@@ -2877,6 +2946,23 @@ Reads the content of the given web page and returns it as markdown, together wit
 | `projectName` | `String` |
 | `filePath` | `String` |
 | `lineNumber` | `int` |
+
+### `MethodMetricsResponseStatus`
+
+`OK` \| `PROJECT_NOT_FOUND` \| `PROJECT_CLOSED` \| `FAILED`
+
+### `MethodMetricsResponseMethodMetric`
+
+| Field | Type |
+|---|---|
+| `methodName` | `String` |
+| `declaringType` | `String` |
+| `signature` | `String` |
+| `projectName` | `String` |
+| `filePath` | `String` |
+| `lineNumber` | `int` |
+| `fanIn` | `int` |
+| `fanOut` | `int` |
 
 ### `MethodSourceResponseStatus`
 
