@@ -157,19 +157,14 @@ public class CodeMetricsServicePDETest
     @Test
     public void testFindDeadCode_StatusAndLocations() throws CoreException
     {
-        DeadCodeResponse result = service.findDeadCode( testProjectName, null, 50 );
+        DeadCodeResponse result = service.findDeadCode( "com.example.Orphan", 50 );
 
         assertEquals( DeadCodeResponse.Status.OK, result.status() );
-        assertEquals( testProjectName, result.projectName() );
-        assertTrue( result.methodsScanned() > 0, "the fixture declares methods to scan" );
+        assertEquals( "com.example.Orphan", result.className() );
+        assertTrue( result.methodsScanned() > 0, "the class declares methods to scan" );
 
         for ( DeadCodeResponse.Candidate candidate : result.candidates() )
         {
-            // main, constructors and overrides are entry points and must never be reported.
-            assertFalse( "main".equals( candidate.methodName() ), "main is an entry point" );
-            assertFalse( "run".equals( candidate.methodName() ),
-                    "run() overrides Runnable.run and is an entry point" );
-
             if ( testProjectName.equals( candidate.projectName() ) )
             {
                 assertTrue( project.getFile( new Path( candidate.filePath() ) ).exists(),
@@ -184,65 +179,57 @@ public class CodeMetricsServicePDETest
      * The point of the tool: an unreferenced method should surface as a candidate. Index
      * timing makes the presence of a particular match unreliable in a cold runner, so the
      * assertion is guarded - but when the search engine is ready, Orphan.neverCalled must
-     * be among the candidates and the excluded entry points must not be.
+     * be reported as a candidate.
      */
     @Test
-    public void testFindDeadCode_ReportsUnreferencedAndExcludesEntryPoints() throws CoreException
+    public void testFindDeadCode_ReportsUnreferencedMethod() throws CoreException
     {
-        DeadCodeResponse result = service.findDeadCode( testProjectName, null, 50 );
+        DeadCodeResponse result = service.findDeadCode( "com.example.Orphan", 50 );
         assertEquals( DeadCodeResponse.Status.OK, result.status() );
 
         boolean sawOrphan = result.candidates().stream()
-                .anyMatch( c -> "neverCalled".equals( c.methodName() )
-                        && "com.example.Orphan".equals( c.declaringType() ) );
+                .anyMatch( c -> "neverCalled".equals( c.methodName() ) );
         Assumptions.assumeTrue( sawOrphan,
                 "JDT search index not ready in this environment - skipping the positive assertion" );
 
-        assertTrue( result.candidates().stream()
+        assertTrue( result.candidates().stream().anyMatch( c -> "neverCalled".equals( c.methodName() ) ),
+                "an unreferenced method must be reported as a candidate" );
+    }
+
+    /**
+     * main, constructors and overrides are entry points. Callee.calleeMethod is called, so
+     * none of Caller, Callee or Worker should yield a dead-code candidate for those.
+     */
+    @Test
+    public void testFindDeadCode_ExcludesEntryPointsAndCalledMethods() throws CoreException
+    {
+        assertTrue( service.findDeadCode( "com.example.Caller", 50 ).candidates().stream()
+                        .noneMatch( c -> "main".equals( c.methodName() ) ),
+                "main is an entry point" );
+
+        assertTrue( service.findDeadCode( "com.example.Worker", 50 ).candidates().stream()
+                        .noneMatch( c -> "run".equals( c.methodName() ) ),
+                "run() overrides Runnable.run and is an entry point" );
+
+        assertTrue( service.findDeadCode( "com.example.Callee", 50 ).candidates().stream()
                         .noneMatch( c -> "calleeMethod".equals( c.methodName() ) ),
                 "a method that is called must not be reported as dead" );
-        assertTrue( result.candidates().stream().noneMatch( c -> "main".equals( c.methodName() ) ) );
-        assertTrue( result.candidates().stream().noneMatch( c -> "run".equals( c.methodName() ) ) );
     }
 
     @Test
-    public void testFindDeadCode_PackageFilterLimitsScan() throws CoreException
+    public void testFindDeadCode_UnknownTypeIsNotFound() throws CoreException
     {
-        DeadCodeResponse all = service.findDeadCode( testProjectName, null, 50 );
-        DeadCodeResponse filtered = service.findDeadCode( testProjectName, "com.example.sub", 50 );
-
-        assertEquals( DeadCodeResponse.Status.OK, filtered.status() );
-        assertEquals( "com.example.sub", filtered.packageFilter() );
-        assertTrue( filtered.methodsScanned() <= all.methodsScanned(),
-                "a package filter cannot scan more methods than the whole project" );
-    }
-
-    @Test
-    public void testFindDeadCode_SeparatesMissingProjectFromClosedProject() throws CoreException
-    {
-        assertEquals( DeadCodeResponse.Status.PROJECT_NOT_FOUND,
-                service.findDeadCode( "NoSuchProjectAnywhere", null, 50 ).status() );
-
-        project.close( monitor );
-        try
-        {
-            assertEquals( DeadCodeResponse.Status.PROJECT_CLOSED,
-                    service.findDeadCode( testProjectName, null, 50 ).status(),
-                    "a closed project is one openProject call away; a missing one is not" );
-        }
-        finally
-        {
-            project.open( monitor );
-        }
+        assertEquals( DeadCodeResponse.Status.TYPE_NOT_FOUND,
+                service.findDeadCode( "com.example.NoSuchType", 50 ).status() );
     }
 
     @Test
     public void testGetMethodMetrics_CountsAndLocations() throws CoreException
     {
-        MethodMetricsResponse result = service.getMethodMetrics( testProjectName, 0, 0, 50 );
+        MethodMetricsResponse result = service.getMethodMetrics( "com.example.Caller", 0, 0, 50 );
 
         assertEquals( MethodMetricsResponse.Status.OK, result.status() );
-        assertEquals( testProjectName, result.projectName() );
+        assertEquals( "com.example.Caller", result.className() );
         assertTrue( result.methodsScanned() > 0 );
         assertEquals( result.totalMatched(), result.methods().size(),
                 "with both minima at 0 and under the limit, every scanned method is listed" );
@@ -261,48 +248,39 @@ public class CodeMetricsServicePDETest
     }
 
     /**
-     * callerMethod calls calleeMethod, so callerMethod has fanOut >= 1 and calleeMethod has
-     * fanIn >= 1. Index timing makes the exact edge unreliable in a cold runner, so the
-     * positive direction is guarded with an assumption.
+     * callerMethod calls calleeMethod, so Caller.callerMethod has fanOut >= 1 and
+     * Callee.calleeMethod has fanIn >= 1. Index timing makes the exact edge unreliable in a
+     * cold runner, so the positive direction is guarded with an assumption.
      */
     @Test
     public void testGetMethodMetrics_ReportsFanInAndFanOut() throws CoreException
     {
-        MethodMetricsResponse result = service.getMethodMetrics( testProjectName, 0, 0, 50 );
-        assertEquals( MethodMetricsResponse.Status.OK, result.status() );
+        MethodMetricsResponse caller = service.getMethodMetrics( "com.example.Caller", 0, 0, 50 );
+        MethodMetricsResponse callee = service.getMethodMetrics( "com.example.Callee", 0, 0, 50 );
+        assertEquals( MethodMetricsResponse.Status.OK, caller.status() );
+        assertEquals( MethodMetricsResponse.Status.OK, callee.status() );
 
-        var caller = result.methods().stream()
+        var callerMethod = caller.methods().stream()
                 .filter( m -> "callerMethod".equals( m.methodName() ) )
                 .findFirst();
-        var callee = result.methods().stream()
+        var calleeMethod = callee.methods().stream()
                 .filter( m -> "calleeMethod".equals( m.methodName() ) )
                 .findFirst();
 
-        Assumptions.assumeTrue( caller.isPresent() && callee.isPresent(),
+        Assumptions.assumeTrue( callerMethod.isPresent() && calleeMethod.isPresent(),
                 "fixture methods not resolved in this environment" );
-        Assumptions.assumeTrue( caller.get().fanOut() >= 1 || callee.get().fanIn() >= 1,
+        Assumptions.assumeTrue( callerMethod.get().fanOut() >= 1 || calleeMethod.get().fanIn() >= 1,
                 "JDT call hierarchy not ready in this environment - skipping the edge assertion" );
 
-        assertTrue( caller.get().fanOut() >= 1, "callerMethod calls calleeMethod" );
-        assertTrue( callee.get().fanIn() >= 1, "calleeMethod is called by callerMethod" );
+        assertTrue( callerMethod.get().fanOut() >= 1, "callerMethod calls calleeMethod" );
+        assertTrue( calleeMethod.get().fanIn() >= 1, "calleeMethod is called by callerMethod" );
     }
 
     @Test
-    public void testGetMethodMetrics_SeparatesMissingProjectFromClosedProject() throws CoreException
+    public void testGetMethodMetrics_UnknownTypeIsNotFound() throws CoreException
     {
-        assertEquals( MethodMetricsResponse.Status.PROJECT_NOT_FOUND,
-                service.getMethodMetrics( "NoSuchProjectAnywhere", 0, 0, 50 ).status() );
-
-        project.close( monitor );
-        try
-        {
-            assertEquals( MethodMetricsResponse.Status.PROJECT_CLOSED,
-                    service.getMethodMetrics( testProjectName, 0, 0, 50 ).status() );
-        }
-        finally
-        {
-            project.open( monitor );
-        }
+        assertEquals( MethodMetricsResponse.Status.TYPE_NOT_FOUND,
+                service.getMethodMetrics( "com.example.NoSuchType", 0, 0, 50 ).status() );
     }
 
     // ------------------------------------------------------------------------

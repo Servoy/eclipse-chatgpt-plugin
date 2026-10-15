@@ -4,25 +4,18 @@ package com.github.gradusnikov.eclipse.assistai.mcp.services;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IProject;
-import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.ILog;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jdt.core.IAnnotation;
-import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.ITypeHierarchy;
@@ -43,13 +36,19 @@ import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
 /**
- * Whole-project code-shape queries that read live from JDT: methods with no references
- * (dead-code candidates) and per-method fan-in/fan-out.
+ * Per-class code-shape queries that read live from JDT: methods of one class with no
+ * references (dead-code candidates) and per-method fan-in/fan-out.
  * <p>
  * Both answers used to come from a separate knowledge-graph index that had to be rebuilt
  * and could lag the source. These compute from the compiler model on each call, so they
- * are exact for the workspace as it stands - at the cost of a workspace-wide search, which
- * is why both tools that call this are marked long-running.
+ * are exact for the workspace as it stands.
+ * <p>
+ * The scope is one class, deliberately. The cost of each answer is a JDT search or call
+ * hierarchy <em>per method</em>, and JDT serializes those on its index lock, so a
+ * whole-project scan is both slow and un-parallelizable. One class declares few enough
+ * methods that the sequential cost is the same order as a single
+ * {@code getMethodCallHierarchy} call - which is the scope at which these are useful: an
+ * agent asking "is anything in this class unused?" or "which methods here are the hubs?"
  */
 @Creatable
 @Singleton
@@ -57,6 +56,9 @@ public class CodeMetricsService
 {
     @Inject
     ILog logger;
+
+    @Inject
+    CodeAnalysisService codeAnalysisService;
 
     /**
      * Annotations that make a method an entry point: something outside normal Java call
@@ -79,7 +81,8 @@ public class CodeMetricsService
             "RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping" );
 
     /**
-     * Methods with no workspace references that are not recognizable entry points.
+     * Methods of one class with no workspace references that are not recognizable entry
+     * points.
      * <p>
      * The result is a list of <em>candidates</em>: the reference count is exact, but
      * reflection, dependency injection, serialization and non-Java callers can keep a
@@ -87,20 +90,32 @@ public class CodeMetricsService
      * DI annotated methods, and overrides - are excluded before the reference search,
      * both because they are reachable by construction and because the search is the cost.
      *
-     * @param packageFilter a package-name prefix to limit the scan; null or blank scans all
+     * @param fullyQualifiedClassName the class whose methods are scanned
      * @param maxResults how many candidates to list; the count is of everything that matched
      */
     @SuppressWarnings("restriction")
-    public DeadCodeResponse findDeadCode( String projectName, String packageFilter, Integer maxResults )
+    public DeadCodeResponse findDeadCode( String fullyQualifiedClassName, Integer maxResults )
     {
         int limit = ( maxResults == null || maxResults < 1 ) ? 50 : maxResults;
-        String filter = ( packageFilter == null || packageFilter.isBlank() ) ? null : packageFilter.trim();
 
-        IJavaProject javaProject = resolveProject( projectName );
-        if ( javaProject == null )
+        IType type;
+        try
         {
-            return DeadCodeResponse.failed( projectName, filter, projectStatusDead( projectName ),
-                    Diagnostic.fatal( projectDiagnosticCode( projectName ), projectMessage( projectName ) ) );
+            type = codeAnalysisService.findType( fullyQualifiedClassName );
+        }
+        catch ( JavaModelException e )
+        {
+            logger.error( e.getMessage(), e );
+            return DeadCodeResponse.failed( fullyQualifiedClassName, DeadCodeResponse.Status.FAILED,
+                    Diagnostic.fatal( DiagnosticCode.INTERNAL_ERROR,
+                            "Error resolving '" + fullyQualifiedClassName + "': "
+                                    + ExceptionUtils.getRootCauseMessage( e ) ) );
+        }
+        if ( type == null )
+        {
+            return DeadCodeResponse.failed( fullyQualifiedClassName, DeadCodeResponse.Status.TYPE_NOT_FOUND,
+                    Diagnostic.fatal( DiagnosticCode.RESOURCE_NOT_FOUND, "Type '" + fullyQualifiedClassName
+                            + "' is not on the build path of any open Java project." ) );
         }
 
         List<Diagnostic> diagnostics = new ArrayList<>();
@@ -112,7 +127,7 @@ public class CodeMetricsService
 
         try
         {
-            for ( IMethod method : sourceMethods( javaProject, filter, diagnostics ) )
+            for ( IMethod method : type.getMethods() )
             {
                 methodsScanned++;
                 try
@@ -141,38 +156,53 @@ public class CodeMetricsService
         catch ( Exception e )
         {
             logger.error( e.getMessage(), e );
-            return DeadCodeResponse.failed( projectName, filter, DeadCodeResponse.Status.FAILED,
+            return DeadCodeResponse.failed( fullyQualifiedClassName, DeadCodeResponse.Status.FAILED,
                     Diagnostic.fatal( DiagnosticCode.INTERNAL_ERROR,
                             "Error scanning for dead code: " + ExceptionUtils.getRootCauseMessage( e ) ) );
         }
 
         boolean truncated = totalCandidates > candidates.size();
-        return DeadCodeResponse.of( projectName, filter, methodsScanned, candidates, truncated, totalCandidates,
-                diagnostics );
+        return DeadCodeResponse.of( fullyQualifiedClassName, methodsScanned, candidates, truncated,
+                totalCandidates, diagnostics );
     }
 
     /**
-     * Per-method fan-in (distinct direct callers) and fan-out (distinct direct callees),
-     * from the same JDT call hierarchy {@code getMethodCallHierarchy} walks, counted one
-     * level deep instead of expanded into a tree.
+     * Per-method fan-in (distinct direct callers) and fan-out (distinct direct callees)
+     * for the methods of one class, from the same JDT call hierarchy
+     * {@code getMethodCallHierarchy} walks, counted one level deep instead of expanded
+     * into a tree.
      *
+     * @param fullyQualifiedClassName the class whose methods are measured
      * @param minFanOut only report methods whose fan-out is at least this; 0 = no floor
      * @param minFanIn only report methods whose fan-in is at least this; 0 = no floor
      * @param maxResults how many methods to list, highest total first
      */
     @SuppressWarnings("restriction")
-    public MethodMetricsResponse getMethodMetrics( String projectName, Integer minFanOut, Integer minFanIn,
-            Integer maxResults )
+    public MethodMetricsResponse getMethodMetrics( String fullyQualifiedClassName, Integer minFanOut,
+            Integer minFanIn, Integer maxResults )
     {
         int floorOut = ( minFanOut == null || minFanOut < 0 ) ? 0 : minFanOut;
         int floorIn = ( minFanIn == null || minFanIn < 0 ) ? 0 : minFanIn;
         int limit = ( maxResults == null || maxResults < 1 ) ? 50 : maxResults;
 
-        IJavaProject javaProject = resolveProject( projectName );
-        if ( javaProject == null )
+        IType type;
+        try
         {
-            return MethodMetricsResponse.failed( projectName, projectStatusMetrics( projectName ),
-                    Diagnostic.fatal( projectDiagnosticCode( projectName ), projectMessage( projectName ) ) );
+            type = codeAnalysisService.findType( fullyQualifiedClassName );
+        }
+        catch ( JavaModelException e )
+        {
+            logger.error( e.getMessage(), e );
+            return MethodMetricsResponse.failed( fullyQualifiedClassName, MethodMetricsResponse.Status.FAILED,
+                    Diagnostic.fatal( DiagnosticCode.INTERNAL_ERROR,
+                            "Error resolving '" + fullyQualifiedClassName + "': "
+                                    + ExceptionUtils.getRootCauseMessage( e ) ) );
+        }
+        if ( type == null )
+        {
+            return MethodMetricsResponse.failed( fullyQualifiedClassName, MethodMetricsResponse.Status.TYPE_NOT_FOUND,
+                    Diagnostic.fatal( DiagnosticCode.RESOURCE_NOT_FOUND, "Type '" + fullyQualifiedClassName
+                            + "' is not on the build path of any open Java project." ) );
         }
 
         List<Diagnostic> diagnostics = new ArrayList<>();
@@ -184,7 +214,7 @@ public class CodeMetricsService
         {
             CallHierarchy callHierarchy = CallHierarchy.getDefault();
 
-            for ( IMethod method : sourceMethods( javaProject, null, diagnostics ) )
+            for ( IMethod method : type.getMethods() )
             {
                 methodsScanned++;
                 try
@@ -208,7 +238,7 @@ public class CodeMetricsService
         catch ( Exception e )
         {
             logger.error( e.getMessage(), e );
-            return MethodMetricsResponse.failed( projectName, MethodMetricsResponse.Status.FAILED,
+            return MethodMetricsResponse.failed( fullyQualifiedClassName, MethodMetricsResponse.Status.FAILED,
                     Diagnostic.fatal( DiagnosticCode.INTERNAL_ERROR,
                             "Error measuring method metrics: " + ExceptionUtils.getRootCauseMessage( e ) ) );
         }
@@ -225,58 +255,13 @@ public class CodeMetricsService
         boolean truncated = totalMatched > limit;
         List<MethodMetricsResponse.MethodMetric> listed = truncated ? matched.subList( 0, limit ) : matched;
 
-        return MethodMetricsResponse.of( projectName, floorOut, floorIn, methodsScanned,
+        return MethodMetricsResponse.of( fullyQualifiedClassName, floorOut, floorIn, methodsScanned,
                 new ArrayList<>( listed ), truncated, totalMatched, diagnostics );
     }
 
     // ------------------------------------------------------------------------
-    // shared traversal and helpers
+    // shared helpers
     // ------------------------------------------------------------------------
-
-    /** Every method declared in the project's source, optionally limited to a package prefix. */
-    private List<IMethod> sourceMethods( IJavaProject javaProject, String packageFilter,
-            List<Diagnostic> diagnostics ) throws JavaModelException
-    {
-        List<IMethod> methods = new ArrayList<>();
-        for ( IPackageFragmentRoot root : javaProject.getPackageFragmentRoots() )
-        {
-            if ( root.getKind() != IPackageFragmentRoot.K_SOURCE )
-            {
-                continue;
-            }
-            for ( IJavaElement child : root.getChildren() )
-            {
-                if ( !( child instanceof IPackageFragment pkg ) )
-                {
-                    continue;
-                }
-                if ( packageFilter != null && !pkg.getElementName().startsWith( packageFilter ) )
-                {
-                    continue;
-                }
-                for ( ICompilationUnit cu : pkg.getCompilationUnits() )
-                {
-                    try
-                    {
-                        for ( IType type : cu.getAllTypes() )
-                        {
-                            for ( IMethod method : type.getMethods() )
-                            {
-                                methods.add( method );
-                            }
-                        }
-                    }
-                    catch ( JavaModelException e )
-                    {
-                        logger.error( e.getMessage(), e );
-                        diagnostics.add( Diagnostic.fatal( DiagnosticCode.INTERNAL_ERROR,
-                                "Could not read " + cu.getElementName() + ": " + e.getMessage() ) );
-                    }
-                }
-            }
-        }
-        return methods;
-    }
 
     /**
      * Whether a method is reachable by something other than a plain Java call, so a zero
@@ -474,66 +459,6 @@ public class CodeMetricsService
         {
             return null;
         }
-    }
-
-    /** The open Java project of that name, or null when there is none to resolve. */
-    private IJavaProject resolveProject( String projectName )
-    {
-        if ( projectName == null || projectName.isBlank() )
-        {
-            return null;
-        }
-        IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject( projectName );
-        if ( project == null || !project.exists() || !project.isOpen() )
-        {
-            return null;
-        }
-        try
-        {
-            if ( !project.hasNature( JavaCore.NATURE_ID ) )
-            {
-                return null;
-            }
-        }
-        catch ( CoreException e )
-        {
-            return null;
-        }
-        return JavaCore.create( project );
-    }
-
-    private static DeadCodeResponse.Status projectStatusDead( String projectName )
-    {
-        return isClosed( projectName ) ? DeadCodeResponse.Status.PROJECT_CLOSED
-                : DeadCodeResponse.Status.PROJECT_NOT_FOUND;
-    }
-
-    private static MethodMetricsResponse.Status projectStatusMetrics( String projectName )
-    {
-        return isClosed( projectName ) ? MethodMetricsResponse.Status.PROJECT_CLOSED
-                : MethodMetricsResponse.Status.PROJECT_NOT_FOUND;
-    }
-
-    private static DiagnosticCode projectDiagnosticCode( String projectName )
-    {
-        return isClosed( projectName ) ? DiagnosticCode.RESOURCE_NOT_ACCESSIBLE : DiagnosticCode.PROJECT_NOT_FOUND;
-    }
-
-    private static String projectMessage( String projectName )
-    {
-        return isClosed( projectName )
-                ? "Project '" + projectName + "' is closed; open it before scanning."
-                : "No open Java project named '" + projectName + "'.";
-    }
-
-    private static boolean isClosed( String projectName )
-    {
-        if ( projectName == null || projectName.isBlank() )
-        {
-            return false;
-        }
-        IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject( projectName );
-        return project != null && project.exists() && !project.isOpen();
     }
 
     /** A small mutable carrier so the location triple is resolved in one place. */

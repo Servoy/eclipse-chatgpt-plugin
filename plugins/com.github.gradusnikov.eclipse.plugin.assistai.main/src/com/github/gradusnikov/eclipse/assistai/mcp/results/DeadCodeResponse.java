@@ -3,8 +3,12 @@ package com.github.gradusnikov.eclipse.assistai.mcp.results;
 import java.util.List;
 
 /**
- * Methods that have no references anywhere in the workspace and are not recognizable
- * entry points - the question asked before deleting code.
+ * Methods of one class that have no references anywhere in the workspace and are not
+ * recognizable entry points - the question asked before deleting code.
+ * <p>
+ * The scan is scoped to a single class so it stays fast: JDT's index answers "who
+ * references this method" per element, and asking it for the handful of methods one
+ * class declares is cheap, where asking it for every method in a project is not.
  * <p>
  * Every candidate is a <em>heuristic</em>, never a proof. Reflection, dependency
  * injection, serialization, non-Java callers (JSP, Spring XML, scripting) and public
@@ -17,8 +21,7 @@ import java.util.List;
  */
 public record DeadCodeResponse(
     Status status,
-    String projectName,
-    String packageFilter,
+    String className,
     int methodsScanned,
     int totalCandidates,
     boolean truncated,
@@ -30,10 +33,8 @@ public record DeadCodeResponse(
     public enum Status
     {
         OK,
-        /** No open project resolves the name. */
-        PROJECT_NOT_FOUND,
-        /** The project exists but is closed. */
-        PROJECT_CLOSED,
+        /** No open Java project resolves the class name. */
+        TYPE_NOT_FOUND,
         /** The scan could not run; see diagnostics. */
         FAILED
     }
@@ -58,28 +59,27 @@ public record DeadCodeResponse(
     }
 
     /** A scan that ran, however few candidates it found. */
-    public static DeadCodeResponse of( String projectName, String packageFilter, int methodsScanned,
-                                       List<Candidate> candidates, boolean truncated, int totalCandidates,
-                                       List<Diagnostic> diagnostics )
+    public static DeadCodeResponse of( String className, int methodsScanned, List<Candidate> candidates,
+                                       boolean truncated, int totalCandidates, List<Diagnostic> diagnostics )
     {
         String summary = candidates.isEmpty()
-                ? "No unreferenced methods found in " + methodsScanned + " scanned. "
+                ? "No unreferenced methods found in " + className + " (" + methodsScanned + " scanned). "
                         + "Note: this is a heuristic - reflection and non-Java callers are not seen."
-                : totalCandidates + ( totalCandidates == 1 ? " method has" : " methods have" )
+                : totalCandidates + ( totalCandidates == 1 ? " method in " : " methods in " ) + className
+                        + ( totalCandidates == 1 ? " has" : " have" )
                         + " no workspace references and are not recognized entry points"
                         + ( truncated ? " (showing " + candidates.size() + ")" : "" ) + ". "
                         + "These are candidates only: reflection, dependency injection, serialization and "
                         + "non-Java callers can still use a method reported here.";
 
-        return new DeadCodeResponse( Status.OK, projectName, packageFilter, methodsScanned, totalCandidates,
-                truncated, candidates, diagnostics, summary );
+        return new DeadCodeResponse( Status.OK, className, methodsScanned, totalCandidates, truncated,
+                candidates, diagnostics, summary );
     }
 
     /** Nothing was scanned, and the status says why. */
-    public static DeadCodeResponse failed( String projectName, String packageFilter, Status status,
-                                           Diagnostic diagnostic )
+    public static DeadCodeResponse failed( String className, Status status, Diagnostic diagnostic )
     {
-        return new DeadCodeResponse( status, projectName, packageFilter, 0, 0, false, List.of(),
+        return new DeadCodeResponse( status, className, 0, 0, false, List.of(),
                 List.of( diagnostic ), diagnostic.message() );
     }
 }

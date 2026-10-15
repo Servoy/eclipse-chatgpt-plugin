@@ -833,12 +833,11 @@ Searches workspace files using a Java regular expression via Eclipse's text sear
 
 ### `findDeadCode` *(long)*
 
-Finds methods in a project that have no references anywhere in the workspace and are not recognizable entry points. IMPORTANT: these are HEURISTIC CANDIDATES, not proof of dead code. The reference count is exact, but a method reported here can still be used through reflection, dependency injection, serialization, a public API consumed outside the workspace, or a non-Java caller (JSP, Spring/XML config, scripting) - none of which this search sees. Present the result as 'candidates to review', never as 'confirmed unused'. Entry points are excluded before reporting: main(String[]), constructors, methods annotated with standard test/lifecycle/DI/web annotations (@Test, @BeforeEach, @Inject, @PostConstruct, @Override, @Bean, @GetMapping, ...), and overrides of a supertype or interface method. Each candidate reports projectName, filePath and a 1-based lineNumber - the same location triple findReferences returns - so it can be opened without a follow-up search. status distinguishes a missing project from a closed one.
+Finds methods of ONE class that have no references anywhere in the workspace and are not recognizable entry points - the check to run before deleting code, or to answer 'is anything in this class unused?'. Scoped to a single class on purpose: the reference search runs once per method, so one class is fast while a whole project is not. IMPORTANT: these are HEURISTIC CANDIDATES, not proof of dead code. The reference count is exact, but a method reported here can still be used through reflection, dependency injection, serialization, a public API consumed outside the workspace, or a non-Java caller (JSP, Spring/XML config, scripting) - none of which this search sees. Present the result as 'candidates to review', never as 'confirmed unused'. Entry points are excluded before reporting: main(String[]), constructors, methods annotated with standard test/lifecycle/DI/web annotations (@Test, @BeforeEach, @Inject, @PostConstruct, @Override, @Bean, @GetMapping, ...), and overrides of a supertype or interface method. Each candidate reports projectName, filePath and a 1-based lineNumber - the same location triple findReferences returns - so it can be opened without a follow-up search. status is TYPE_NOT_FOUND when no open project resolves the class name.
 
 | Parameter | | Description |
 |---|---|---|
-| `projectName` | \* | The exact open Eclipse Java project name to scan |
-| `packageFilter` |  | Optional package-name prefix to limit the scan (e.g. 'com.example.internal'); omit to scan the whole project |
+| `fullyQualifiedClassName` | \* | The fully qualified name of the class whose methods to check (e.g. 'com.example.MyClass') |
 | `maxResults` |  | Maximum number of candidates to list (default: 50). totalCandidates reports how many matched before truncation. |
 
 **Returns** [`DeadCodeResponse`](#deadcoderesponse)
@@ -1019,11 +1018,11 @@ Finds the callers of a method, and what that method calls, to understand how it 
 
 ### `getMethodMetrics` *(long)*
 
-Measures how connected each method in a project is: fanIn (how many distinct methods call it) and fanOut (how many distinct methods it calls), counted one level deep from the live JDT call hierarchy. A high fanIn marks a method much of the project depends on; a high fanOut marks one that coordinates many others - both are where a refactoring has to be careful. Use minFanIn/minFanOut to find only the hubs, and the result is sorted with the most connected methods first. Each method reports projectName, filePath and a 1-based lineNumber so it can be opened directly. status distinguishes a missing project from a closed one.
+Measures how connected each method of ONE class is: fanIn (how many distinct methods call it) and fanOut (how many distinct methods it calls), counted one level deep from the live JDT call hierarchy. Scoped to a single class on purpose: the call hierarchy is built once per method, so one class is fast while a whole project is not. A high fanIn marks a method much of the project depends on; a high fanOut marks one that coordinates many others - both are where a refactoring has to be careful. Use minFanIn/minFanOut to keep only the hubs; the result is sorted with the most connected methods first. Each method reports projectName, filePath and a 1-based lineNumber so it can be opened directly. status is TYPE_NOT_FOUND when no open project resolves the class name.
 
 | Parameter | | Description |
 |---|---|---|
-| `projectName` | \* | The exact open Eclipse Java project name to scan |
+| `fullyQualifiedClassName` | \* | The fully qualified name of the class whose methods to measure (e.g. 'com.example.MyClass') |
 | `minFanOut` |  | Only report methods whose fanOut (distinct callees) is at least this (default: 0 = no floor) |
 | `minFanIn` |  | Only report methods whose fanIn (distinct callers) is at least this (default: 0 = no floor) |
 | `maxResults` |  | Maximum number of methods to list, highest total connectivity first (default: 50) |
@@ -2052,8 +2051,7 @@ Reads the content of the given web page and returns it as markdown, together wit
 | Field | Type |
 |---|---|
 | `status` | [`DeadCodeResponseStatus`](#deadcoderesponsestatus) |
-| `projectName` | `String` |
-| `packageFilter` | `String` |
+| `className` | `String` |
 | `methodsScanned` | `int` |
 | `totalCandidates` | `int` |
 | `truncated` | `boolean` |
@@ -2184,7 +2182,7 @@ Reads the content of the given web page and returns it as markdown, together wit
 | Field | Type |
 |---|---|
 | `status` | [`MethodMetricsResponseStatus`](#methodmetricsresponsestatus) |
-| `projectName` | `String` |
+| `className` | `String` |
 | `minFanOut` | `int` |
 | `minFanIn` | `int` |
 | `methodsScanned` | `int` |
@@ -2817,7 +2815,7 @@ Reads the content of the given web page and returns it as markdown, together wit
 
 ### `DeadCodeResponseStatus`
 
-`OK` \| `PROJECT_NOT_FOUND` \| `PROJECT_CLOSED` \| `FAILED`
+`OK` \| `TYPE_NOT_FOUND` \| `FAILED`
 
 ### `DeadCodeResponseCandidate`
 
@@ -2949,7 +2947,7 @@ Reads the content of the given web page and returns it as markdown, together wit
 
 ### `MethodMetricsResponseStatus`
 
-`OK` \| `PROJECT_NOT_FOUND` \| `PROJECT_CLOSED` \| `FAILED`
+`OK` \| `TYPE_NOT_FOUND` \| `FAILED`
 
 ### `MethodMetricsResponseMethodMetric`
 
