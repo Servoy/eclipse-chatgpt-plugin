@@ -2,7 +2,7 @@ name: Build and Deploy Eclipse Update Site
 
 on:
   push:
-    branches: ["main"]
+    branches: ["servoy"]
   workflow_dispatch:
 
 permissions:
